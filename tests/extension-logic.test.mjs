@@ -135,6 +135,15 @@ console.log('\n=== 4b) 读文本必须用 textContent（脱离文档的克隆节
   check('代码块内容保留（JSON 就在里面）', D.textOf(row('```json\n{"a":1}\n```')).includes('{"a":1}'));
 }
 
+console.log('\n=== 4c) 现场诊断（读不到答复时用来自证"页面到底有什么"）===');
+{
+  const d = doc([row('已有回答')]);
+  const line = D.diagnose(d);
+  check('诊断行含各候选选择器的命中数', /\[data-message-role\]=/.test(line) && /\.ds-markdown=/.test(line), line.slice(0, 90));
+  check('诊断行含 readyState 与 main 子节点数', /readyState=/.test(line) && /main子节点=/.test(line));
+  check('命中数确实反映 DOM（.ds-markdown 命中 1）', /\.ds-markdown=1/.test(line));
+}
+
 console.log('\n=== 5) 状态行文案 ===');check('生成中且已有文本 → 说明正在生成', D.phaseOf({ text: 'abc', generating: true, sent: true }) === '网页正在生成回复');
 check('只有思考 → 说明正在思考', D.phaseOf({ text: '', reasoning: '想', generating: true, sent: true }) === '网页正在思考');
 check('还没确认发送 → 说明在提交', D.phaseOf({ text: '', reasoning: '', generating: false, sent: false }) === '正在把提示词提交到网页');
