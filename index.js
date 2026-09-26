@@ -87,6 +87,7 @@ export class WebAdapter extends LlmAdapter {
         try {
           const result = await this.broker.run({
             prompt: built.prompt,
+            requestId: built.id,
             timeoutMs: this.config.timeoutMs,
             signal: options.signal,
             onProgress: (phase) => { this.broker.lastPhase = phase; },

@@ -19,7 +19,7 @@ console.log('=== 1) 提示词组装 ===');
   check('request_id 用了指定的值', t.id === 'req-test01');
   check('含系统指令', t.prompt.includes('你是简洁助手'));
   check('含输出契约', t.prompt.includes(FORMAT_GUARD.slice(0, 24)));
-  check('契约里带上了本轮 REQUEST_ID', t.prompt.includes('"request_id":"req-test01"') && !t.prompt.includes('<本轮 REQUEST_ID>'));
+  check('契约示例用占位编号，真编号只在最后一行说明', t.prompt.includes('req-示例编号') && t.prompt.includes('req-test01') && !t.prompt.includes('<本轮 REQUEST_ID>'), '（这样"读页面尾部整段文本"时示例不会被误当答案）');
   check('含用户消息', t.prompt.includes('[user] 北京天气？'));
   check('含上一轮工具调用', t.prompt.includes('get_weather({"city":"北京"})'));
   check('含工具结果', t.prompt.includes('[工具结果 c1] 晴 25℃'));
