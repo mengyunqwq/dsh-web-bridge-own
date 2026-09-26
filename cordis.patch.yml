@@ -1,0 +1,11 @@
+# dsh-web-bridge-own 的 DSH 加载补丁
+#
+# 与上游插件的关系：**二选一**。两者的 provider id 都是 deepseek-web、默认端口都是 3081，
+# 同时启用会争抢同一个端口。替换步骤见 README：先在 DSH 里禁用上游插件，再启用本插件。
+- insert:
+    - id: deepseek-web-bridge-own
+      name: dsh-web-bridge-own
+      config:
+        port: 3081
+        # 留空则使用 ~/.dsh/web-bridge-own/token（首次启动自动生成；用 npm run setup 写进扩展目录）
+        token: !!js process.env.DSH_WEB_BRIDGE_OWN_TOKEN

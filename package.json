@@ -1,0 +1,30 @@
+{
+  "name": "dsh-web-bridge-own",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "把已登录的 DeepSeek 网页接到 DSH 模型层（独立实现，不含上游任何代码）",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-llm": "0.1.5-rc.2",
+    "@deepseek-ai/schemastery": "3.18.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "scripts": {
+    "test": "node tests/protocol.test.mjs && node tests/broker.test.mjs && node tests/extension-logic.test.mjs && node tests/plugin.test.mjs",
+    "setup": "node bin/setup.mjs"
+  },
+  "license": "MIT"
+}
