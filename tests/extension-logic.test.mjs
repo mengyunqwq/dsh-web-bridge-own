@@ -140,8 +140,10 @@ console.log('\n=== 4c) 现场诊断（读不到答复时用来自证"页面到�
   const d = doc([row('已有回答')]);
   const line = D.diagnose(d);
   check('诊断行含各候选选择器的命中数', /\[data-message-role\]=/.test(line) && /\.ds-markdown=/.test(line), line.slice(0, 90));
-  check('诊断行含 readyState 与 main 子节点数', /readyState=/.test(line) && /main子节点=/.test(line));
+  check('诊断行含 readyState、页面 URL 与是否登录页', /readyState=/.test(line) && /url=/.test(line) && /登录页=/.test(line), line.slice(0, 120));
   check('命中数确实反映 DOM（.ds-markdown 命中 1）', /\.ds-markdown=1/.test(line));
+  check('能识别登录页（同域名，光靠 URL 匹配区分不出来）', D.isSignInPage({ location: { href: 'https://chat.deepseek.com/sign_in' }, querySelectorAll: () => [], body: { textContent: '登录 / 注册' } }) === true);
+  check('正常聊天页不误判为登录页', D.isSignInPage({ location: { href: 'https://chat.deepseek.com/a/chat/s/xx' }, querySelectorAll: () => [1], body: { textContent: '登录' } }) === false);
 }
 
 console.log('\n=== 5) 状态行文案 ===');check('生成中且已有文本 → 说明正在生成', D.phaseOf({ text: 'abc', generating: true, sent: true }) === '网页正在生成回复');
