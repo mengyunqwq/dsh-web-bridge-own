@@ -23,7 +23,7 @@
     "@deepseek-ai/cordis": "^4.0.2"
   },
   "scripts": {
-    "test": "node tests/protocol.test.mjs && node tests/broker.test.mjs && node tests/extension-logic.test.mjs && node tests/plugin.test.mjs",
+    "test": "node tests/protocol.test.mjs && node tests/broker.test.mjs && node tests/extension-logic.test.mjs && node tests/plugin.test.mjs && node tests/delivery-ack.test.mjs",
     "setup": "node bin/setup.mjs",
     "measure": "node bin/measure.mjs",
     "start": "node bin/serve.mjs"
