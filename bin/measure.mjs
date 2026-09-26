@@ -28,8 +28,8 @@ async function status() {
   catch (error) { return { error: error.message }; }
 }
 
-async function runOnce({ label, prompt, tools = [], timeoutMs = 120_000 }) {
-  const built = buildTask({ messages: [{ role: 'user', content: prompt }], tools, requestId: undefined });
+async function runOnce({ label, prompt, tools = [], timeoutMs = 120_000, nudge = '', quiet = false }) {
+  const built = buildTask({ messages: [{ role: 'user', content: prompt }], tools, requestId: undefined, nudge });
   const started = Date.now();
   const marks = [];
   const res = await fetch(BASE + '/task', {
@@ -52,7 +52,7 @@ async function runOnce({ label, prompt, tools = [], timeoutMs = 120_000 }) {
       buf = buf.slice(at + 1);
       if (!line) continue;
       let event; try { event = JSON.parse(line); } catch { continue; }
-      if (event.type === 'progress') { marks.push({ at: Date.now() - started, phase: event.phase }); console.log(`    +${String(Date.now() - started).padStart(6)}ms  ${event.phase}`); }
+      if (event.type === 'progress') { marks.push({ at: Date.now() - started, phase: event.phase }); if (!quiet) console.log(`    +${String(Date.now() - started).padStart(6)}ms  ${event.phase}`); }
       else if (event.type === 'result') result = event;
     }
   }
@@ -62,7 +62,14 @@ async function runOnce({ label, prompt, tools = [], timeoutMs = 120_000 }) {
     (result.queuedMs !== null && result.queuedMs !== undefined ? `（排队 ${result.queuedMs}ms + 执行 ${result.executedMs}ms）` : ''));
   if (!result.ok) { console.log(`    错误：${result.error}${result.code ? '  [' + result.code + ']' : ''}`); return { result, total, marks }; }
 
-  const reply = parseReply(result.text, { id: built.id, schemas: schemasOf(tools) });
+  // 解析失败不再让工具直接崩：打印可读原因，把判断留给调用方（例如缺参数时带提醒重试一次）
+  let reply;
+  try {
+    reply = parseReply(result.text, { id: built.id, schemas: schemasOf(tools) });
+  } catch (error) {
+    console.log(`    解析失败：${error.message}  [${error.code || '未知'}]`);
+    return { result, parseError: error, total, marks };
+  }
   if (reply.kind === 'final') {
     console.log(`    解析：final　${(reply.text || '').replace(/\s+/g, ' ').slice(0, 80)}`);
   } else {
@@ -100,7 +107,18 @@ if (args.includes('--tools')) {
       parameters: { type: 'object', properties: { city: { type: 'string', description: '城市名' } }, required: ['city'], additionalProperties: false },
     },
   }];
-  await runOnce({ label: '工具调用', prompt: '请调用 get_weather 工具查询「北京」的天气，不要直接回答天气。', tools });
+  const first = await runOnce({ label: '工具调用', prompt: '请调用 get_weather 工具查询「北京」的天气，不要直接回答天气。', tools });
+  // 镜像产品行为：缺必需参数属于"模型没按契约输出"，可安全重试一次，并带上提醒。
+  // （网页侧失败绝不重试——那会让用户账号里出现两条一样的提问。）
+  if (first.parseError?.code === 'WEB_TOOL_MISSING_ARGS') {
+    console.log('  → 缺必需参数：按产品行为带提醒重试一次（网页侧失败不会重试）');
+    await runOnce({
+      label: '工具调用（重试）',
+      prompt: '请调用 get_weather 工具查询「北京」的天气，不要直接回答天气。',
+      tools,
+      nudge: '上一轮你的工具调用缺少必需参数。这次请把 parameters 里 required 列出的字段全部填上，不要交空对象。',
+    });
+  }
 }
 
 console.log('\n完成。');

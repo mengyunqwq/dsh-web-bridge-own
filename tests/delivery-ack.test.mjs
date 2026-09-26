@@ -144,5 +144,23 @@ console.log('\n=== 3) 两级确认：收到即确认能免掉误重发，但没�
   await broker.close();
 }
 
+console.log('\n=== 4) 已派发后超时 → 不可重试的错误码（避免重复提问）===');
+{
+  // ack 窗口故意设得很大，让任务自己的总预算先到
+  const broker = createBroker({ token: TOKEN, port: 0, timeoutMs: 1200, stallMs: 6000, ackTimeoutMs: 20_000, handoffTimeoutMs: 20_000, maxDeliveries: 3, log: () => {} });
+  await broker.start();
+  const base = `http://127.0.0.1:${broker.port}`;
+  const taskRes = await fetch(base + '/task', {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + TOKEN },
+    body: JSON.stringify({ prompt: 'P4', timeoutMs: 1200 }),
+  });
+  const { finished } = readNdjson(taskRes);
+  await pollTake(base);           // 领走，但一直不回报（提示词可能已经发出去了）
+  const final = await Promise.race([finished, sleep(4000).then(() => null)]);
+  check('已派发后超时用 WEB_TIMEOUT_AFTER_DISPATCH', final?.code === 'WEB_TIMEOUT_AFTER_DISPATCH', String(final?.code));
+  check('文案提醒不要直接重试', /不要直接重试|先在网页/.test(String(final?.error)), String(final?.error).slice(0, 60));
+  await broker.close();
+}
+
 console.log('\n' + (fail === 0 ? `全部通过 ✓  (${pass} 项)` : `失败 ${fail} 项 ✗ (通过 ${pass})`));
 process.exit(fail === 0 ? 0 : 1);
