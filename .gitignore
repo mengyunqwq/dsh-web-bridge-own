@@ -1,5 +1,7 @@
 node_modules/
 chrome/
+chrome-test/
+local-config.json
 config.json
 *.log
 .DS_Store
