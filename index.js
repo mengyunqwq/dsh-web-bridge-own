@@ -118,6 +118,24 @@ export class WebAdapter extends LlmAdapter {
 }
 
 export async function apply(ctx, config) {
+  try {
+    return await applyInner(ctx, config);
+  } catch (error) {
+    // 自己把激活失败的原因落盘：宿主有时只说 "host ✗"，不给出原因（实测就卡在这里，
+    // 反复注入都看不到真实报错）。这行日志是排查这类问题的唯一可靠入口。
+    try {
+      const { appendFileSync, mkdirSync } = await import('node:fs');
+      const { join, dirname } = await import('node:path');
+      const { homedir } = await import('node:os');
+      const file = join(homedir(), '.dsh', 'web-bridge-own', 'apply-error.log');
+      mkdirSync(dirname(file), { recursive: true });
+      appendFileSync(file, `[${new Date().toISOString()}] ${error?.name || 'Error'}: ${error?.message || error}\n${error?.stack || ''}\n\n`, 'utf8');
+    } catch { /* 连日志都写不了也不能因此吞掉真实错误 */ }
+    throw error;
+  }
+}
+
+async function applyInner(ctx, config) {
   const log = (m) => { try { console.log('[dsh-web-bridge-own] ' + m); } catch { /* ignore */ } };
   const token = loadToken(config, log);
   const broker = createBroker({
