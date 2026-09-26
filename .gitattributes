@@ -1,0 +1,7 @@
+# 统一用 LF 检出，避免在 Windows 上出现"整个文件都被改了"的假 diff
+* text=auto eol=lf
+*.cmd -text
+*.bat -text
+*.vbs -text
+*.png binary
+*.ico binary
