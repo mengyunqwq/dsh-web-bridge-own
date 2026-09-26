@@ -102,5 +102,47 @@ console.log('\n=== 2) 一直没人接手 → 交够次数后明确失败（不�
   await broker.close();
 }
 
+console.log('\n=== 3) 两级确认：收到即确认能免掉误重发，但没接手仍会重发 ===');
+{
+  // 一级窗口 300ms、二级（接手）窗口 1500ms。
+  // 注意必须把两个窗口拉开：如果"不该重发"的那次 poll 一直等到二级窗口过去，
+  // 重发会正好落在这个 poll 的等待期里，看起来就像"提前重发了"（我第一版就这么写错的）。
+  const broker = createBroker({ token: TOKEN, port: 0, timeoutMs: 9000, stallMs: 8000, ackTimeoutMs: 300, handoffTimeoutMs: 1500, maxDeliveries: 3, log: () => {} });
+  await broker.start();
+  const base = `http://127.0.0.1:${broker.port}`;
+  const progress = (body) => fetch(base + '/ext/progress', {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + TOKEN }, body: JSON.stringify(body),
+  }).then((r) => r.json());
+
+  const taskRes = await fetch(base + '/task', {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + TOKEN },
+    body: JSON.stringify({ prompt: 'P3', timeoutMs: 9000 }),
+  });
+  const { finished } = readNdjson(taskRes);
+  const first = await pollTake(base);
+
+  // 扩展收到就确认（stage=receipt）
+  const ack = await progress({ taskId: first.task.id, lease: first.task.lease, stage: 'receipt', phase: '扩展已收到任务，正在准备标签页' });
+  check('收到确认被接受', ack.ok === true, JSON.stringify(ack));
+
+  // 超过一级窗口、但离二级窗口还远：**不应该**重发（页面在加载是合法的慢）
+  await sleep(400);
+  const during = await pollTake(base, 300);        // 300ms 后主动放弃，远早于 1500ms
+  check('收到已确认 + 尚未到接手窗口 → 不重发', !during?.task, JSON.stringify(during));
+
+  // 等到超过二级窗口：内容脚本一直没接手 → 必须重发
+  await sleep(1300);
+  const after = await pollTake(base, 2000);
+  check('一直没接手 → 重发同一个任务', after?.task?.id === first.task.id, after?.task?.id);
+  check('重发原因写明是"没接手"', (broker.snapshot().tasks.find((t) => t.id === first.task.id)?.phases || []).some((p) => /没接手/.test(p)));
+
+  // 接手后正常完成
+  await progress({ taskId: after.task.id, lease: after.task.lease, phase: '内容脚本已接手，正在准备提交' });
+  await report(base, { taskId: after.task.id, lease: after.task.lease, ok: true, text: '两级确认后的结果' });
+  const final = await finished;
+  check('最终正常完成', final?.ok === true && String(final.text).includes('两级确认'), String(final?.text));
+  await broker.close();
+}
+
 console.log('\n' + (fail === 0 ? `全部通过 ✓  (${pass} 项)` : `失败 ${fail} 项 ✗ (通过 ${pass})`));
 process.exit(fail === 0 ? 0 : 1);

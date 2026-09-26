@@ -69,18 +69,39 @@ export class WebAdapter extends LlmAdapter {
     const started = Date.now();
     let index = 0;
     try {
-      const built = buildTask({ messages: options.messages || [], tools: options.tools || [], guard: true });
-      this.broker.lastPhase = '已提交到网页';
-      const result = await this.broker.run({
-        prompt: built.prompt,
-        timeoutMs: this.config.timeoutMs,
-        signal: options.signal,
-        onProgress: (phase) => { this.broker.lastPhase = phase; },
-      });
-      this.broker.lastPhase = '网页已返回，正在解析';
-      const reply = parseReply(result.text, { id: built.id, schemas: schemasOf(options.tools) });
-      this.broker.lastOutcome = { at: Date.now(), kind: reply.kind, tools: (reply.calls || []).map((c) => c.name), ms: Date.now() - started, chars: (result.text || '').length };
-      yield* replyChunks(reply, index);
+      // 可以安全重试的失败：**只是模型这次没按契约输出**（缺参数、写成散文、编号不对）。
+      // 绝不包含网页侧失败（页面重载、超时、断线）——重试那些会在用户账号里发两条一样的提问。
+      const retryable = new Set(['WEB_TOOL_MISSING_ARGS', 'WEB_REPLY_JSON', 'WEB_REPLY_KIND', 'WEB_REPLY_TEXT', 'WEB_REPLY_CALLS']);
+      const nudgeFor = (error) => (error?.code === 'WEB_TOOL_MISSING_ARGS'
+        ? '上一轮你的工具调用缺少必需参数。这次请把 parameters 里 required 列出的字段**全部填上**，不要交空对象，也不要多写其它字段。'
+        : '');
+      let lastError = null;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const built = buildTask({
+          messages: options.messages || [],
+          tools: options.tools || [],
+          guard: true,
+          nudge: attempt > 1 ? nudgeFor(lastError) : '',
+        });
+        this.broker.lastPhase = attempt > 1 ? '第 2 次尝试：已重新提交到网页' : '已提交到网页';
+        try {
+          const result = await this.broker.run({
+            prompt: built.prompt,
+            timeoutMs: this.config.timeoutMs,
+            signal: options.signal,
+            onProgress: (phase) => { this.broker.lastPhase = phase; },
+          });
+          this.broker.lastPhase = '网页已返回，正在解析';
+          const reply = parseReply(result.text, { id: built.id, schemas: schemasOf(options.tools) });
+          this.broker.lastOutcome = { at: Date.now(), kind: reply.kind, tools: (reply.calls || []).map((c) => c.name), ms: Date.now() - started, chars: (result.text || '').length };
+          yield* replyChunks(reply, index);
+          return;
+        } catch (error) {
+          lastError = error;
+          if (attempt === 2 || !retryable.has(error?.code)) throw error;
+          this.broker.lastPhase = `第 1 次没有通过（${error.message}），正在重试一次`;
+        }
+      }
     } catch (error) {
       // 失败时也要给宿主一段可读的终止文字（否则界面只显示空回复），但**仍然抛错**——
       // 这一轮没有成功，不能假装成功。
