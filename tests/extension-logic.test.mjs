@@ -180,6 +180,32 @@ console.log('\n=== 4e) 认账门：必须看到本轮编号或契约字段 kind�
   check('没给 requestId 时只认 kind 字段', D.looksLikeAnswer('一段散文，没有任何字段', '') === false);
 }
 
+console.log('\n=== 4f) N3：page-tail 必须出现"本轮契约对象"，提示词自己不算 ===');
+{
+  // 提示词最后一行含本轮编号（"request_id 必须是 req-abc"），且提示词里还有一段完整 JSON 示例。
+  // 只按"文本含编号"认账会把提示词当答复；要求"可解析且编号/kind 都对"才能排除它。
+  const promptTail = '【对话】\n用户问：天气\n{"request_id":"req-示例编号","kind":"final","text":"给用户的最终回答"}\n【现在开始】只输出那个 JSON 对象，request_id 必须是 "req-abc"。';
+  check('提示词尾部：含编号但不含本轮契约对象 → false', D.hasContractAnswer(promptTail, 'req-abc') === false);
+  check('而 looksLikeAnswer 仍会误认为"像答复"（这正是要再加一道门的原因）', D.looksLikeAnswer(promptTail, 'req-abc') === true);
+
+  const answered = '提示词…\n```json\n{"request_id":"req-abc","kind":"final","text":"晴"}\n```';
+  check('真答复（本轮编号 + kind=final）→ true', D.hasContractAnswer(answered, 'req-abc') === true);
+  const answeredCalls = '{"request_id":"req-abc","kind":"tool_calls","calls":[{"name":"t","arguments":{}}]}';
+  check('真答复（tool_calls）→ true', D.hasContractAnswer(answeredCalls, 'req-abc') === true);
+  check('编号对但 kind 非法 → false（留给客户端报 kind 错）', D.hasContractAnswer('{"request_id":"req-abc","kind":"answer"}', 'req-abc') === false);
+  check('只有别的轮次编号 → false', D.hasContractAnswer('{"request_id":"req-xyz","kind":"final","text":"x"}', 'req-abc') === false);
+  check('没给 requestId → false（宁可多等）', D.hasContractAnswer('{"kind":"final","text":"x"}', '') === false);
+}
+
+console.log('\n=== 4g) N1：clock.js 的开关必须有人写（否则渲染时钟补丁是死代码）===');
+{
+  const clock = readFileSync(join(ROOT, 'extension', 'clock.js'), 'utf8');
+  const content = readFileSync(join(ROOT, 'extension', 'content.js'), 'utf8');
+  check('clock.js 读的是 dataset.dshOwnActive（data-dsh-own-active）', /dataset\?\.\[FLAG\]|dataset\[FLAG\]/.test(clock) && /FLAG\s*=\s*'dshOwnActive'/.test(clock));
+  check('content.js 真的写这个标志（任务开始时置 1）', /dataset\.dshOwnActive\s*=\s*'1'/.test(content), 'content.js 写 dataset.dshOwnActive');
+  check('任务结束会清掉标志（普通浏览走原生时序）', /delete\s+document\.documentElement\.dataset\.dshOwnActive/.test(content));
+}
+
 console.log('\n=== 5a) 输入框读写按形态无关（contenteditable 支持）===');
 {
   // content.js 依赖 dom.js 这一对函数：textarea 读 .value，contenteditable 读 textContent。

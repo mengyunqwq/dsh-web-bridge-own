@@ -69,9 +69,11 @@ export class WebAdapter extends LlmAdapter {
     const started = Date.now();
     let index = 0;
     try {
-      // 可以安全重试的失败：**只是模型这次没按契约输出**（缺参数、写成散文、编号不对）。
-      // 绝不包含网页侧失败（页面重载、超时、断线）——重试那些会在用户账号里发两条一样的提问。
-      const retryable = new Set(['WEB_TOOL_MISSING_ARGS', 'WEB_REPLY_JSON', 'WEB_REPLY_KIND', 'WEB_REPLY_TEXT', 'WEB_REPLY_CALLS']);
+      // 可以安全重试的失败：**只剩"缺必需参数"**（用户 2026-09-28 决策：折中方案）。
+      // 其余格式类失败（散文 / kind 不对 / 空文本 / 没有 calls）虽然是"模型没按契约输出"，
+      // 但**提示词已经提交过**——重试等于把整段提示词再发一遍，用户账号里会出现第二条一样的
+      // 提问（本项目最高级别红线）。那几类现在只报错，由人或上层决定。
+      const retryable = new Set(['WEB_TOOL_MISSING_ARGS']);
       const nudgeFor = (error) => (error?.code === 'WEB_TOOL_MISSING_ARGS'
         ? '上一轮你的工具调用缺少必需参数。这次请把 parameters 里 required 列出的字段**全部填上**，不要交空对象，也不要多写其它字段。'
         : '');
