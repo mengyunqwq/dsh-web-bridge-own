@@ -160,6 +160,32 @@ console.log('\n=== 7) 没人来取任务 → 总超时后按"未被取走"报错
   check('超时失败且指出是没人取走', !!final && final.ok === false && /没有取走/.test(final.error), final ? final.error.slice(0, 70) : '（超时未返回）');
 }
 
+console.log('\n=== 8) OpenAI 兼容面：非流式失败必须立刻给出错误（不能挂死）===');
+{
+  // 修复前的缺陷：/v1/chat/completions 非流式在 chatOnce 之前就 writeHead(200)，
+  // 失败时 sendJson(502) 写不进去、res 永不 end —— 客户端挂到超时。现在 writeHead
+  // 挪到成功路径上，失败分支能真正发出 504/502。
+  const started = Date.now();
+  const res = await fetch(BASE + '/v1/chat/completions', {
+    method: 'POST',
+    headers: H,
+    body: JSON.stringify({ model: 'web-deepseek', messages: [{ role: 'user', content: 'hi' }], stream: false, timeout_ms: 600 }),
+  });
+  const elapsed = Date.now() - started;
+  check('非流式失败时能拿到确定的 HTTP 状态码（而不是挂死）', res.status === 504 || res.status === 502, 'HTTP ' + res.status);
+  const body = await res.json().catch(() => null);
+  check('错误体外形是 OpenAI 的 error 结构', !!body && !!body.error && typeof body.error.message === 'string' && typeof body.error.code === 'string', JSON.stringify(body).slice(0, 120));
+  check('响应要快（broker 超时 600ms + 一点余量），而不是挂到客户端超时', elapsed < 5000, elapsed + 'ms');
+}
+
+console.log('\n=== 9) OpenAI 兼容面：参数错误 → 400（与网页侧无关的真 400）===');
+{
+  const res = await post('/v1/chat/completions', { model: 'web-deepseek', messages: [] });
+  check('空 messages → 400', res.status === 400, 'HTTP ' + res.status);
+  const body = await res.json().catch(() => null);
+  check('400 也带 error.message', !!body?.error?.message, JSON.stringify(body).slice(0, 80));
+}
+
 await broker.close();
 clearTimeout(watchdog);
 console.log('\n' + (fail === 0 ? `全部通过 ✓  (${pass} 项)` : `失败 ${fail} 项 ✗ (通过 ${pass})`));
