@@ -1,6 +1,6 @@
 node_modules/
-chrome/
-chrome-test/
+chrome*/
+chrome-test*/
 local-config.json
 config.json
 *.log
