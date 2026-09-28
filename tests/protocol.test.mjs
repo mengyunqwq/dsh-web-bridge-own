@@ -125,5 +125,19 @@ console.log('\n=== 7) 重试时能带上提醒（nudge）===');
   check('提醒排在输出契约之后（更靠近生成位置）', nudged.prompt.indexOf('上一轮的问题') > nudged.prompt.indexOf('本机桥接输出格式硬性要求'));
 }
 
+console.log('\n=== 8) 模型把 JSON 塞进 text 却不转义 → 解析侧容错修复 ===');
+{
+  // 真机原文（同一模型连续两次都这么写）：text 是一段 JSON 数组，里面的引号没有转义
+  const broken = '{"request_id":"req-fix01","kind":"final","text":"[{"name":"苹果"},{"name":"香蕉"}]"}';
+  const fixed = parseReply(broken, { id: 'req-fix01' });
+  check('修复后能解析并给出 text', fixed.kind === 'final' && fixed.text.includes('苹果'), fixed.text.slice(0, 30));
+  check('留下"曾修复"的警告（不静默吞掉）', fixed.warnings.some((w) => /未转义引号/.test(w)));
+  check('围栏代码块里的同种写法也能修', parseReply('```json\n' + broken + '\n```', { id: 'req-fix01' }).text.includes('香蕉'));
+  const wrongId = throwsWith(() => parseReply(broken.replace('req-fix01', 'req-old'), { id: 'req-fix01' }), 'WEB_REPLY_JSON');
+  check('修完编号不是本轮 → 仍然报错（绝不当成答案）', !!wrongId, String(wrongId?.code));
+  check('没有 text 字段的半截 JSON → 仍然报 WEB_REPLY_JSON', !!throwsWith(() => parseReply('{"request_id":"req-fix01","kind":"final"', { id: 'req-fix01' }), 'WEB_REPLY_JSON'));
+  check('正常 JSON 不受影响（不触发修复、无警告）', parseReply('{"request_id":"req-fix01","kind":"final","text":"普通答复"}', { id: 'req-fix01' }).warnings.length === 0);
+}
+
 console.log('\n' + (fail === 0 ? `全部通过 ✓  (${pass} 项)` : `失败 ${fail} 项 ✗ (通过 ${pass})`));
 process.exit(fail === 0 ? 0 : 1);
