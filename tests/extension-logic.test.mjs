@@ -241,6 +241,59 @@ check('还没确认发送 → 说明在提交', D.phaseOf({ text: '', reasoning:
 check('已停止且有文本 → 说明在回传', D.phaseOf({ text: 'abc', generating: false, sent: true }) === '网页已生成完毕，正在回传');
 check('没有停止按钮但也没内容 → 不说成"已停止生成"（实测那只是会话页切换期）', D.phaseOf({ text: '', generating: false, sent: true }) === '已提交，网页尚未渲染出答复（可能在切换会话页）');
 
+console.log('\n=== 4h) background.js 真的能在假 chrome 环境里加载（防 DEFAULTS is not defined 这类） ===');
+{
+  // 为什么要有这一节：2026-09-28 的真实事故 —— 有人改 background.js 的版本号时，把上一行的
+  // `const DEFAULTS = { base: ... }` 一起删掉了，于是 configPromise 里的 `{ ...DEFAULTS, ...cfg }`
+  // 抛 ReferenceError: DEFAULTS is not defined → 扩展解析不到配置、永远连不上 broker（用户侧
+  // 表现只是"卡片在、但一直未连接"）。而**当时所有测试全绿**，因为 background.js 只被"检查文件
+  // 存在"，从不被执行 —— 线上分发的整包里就是这份坏代码。
+  const { createContext, runInContext } = await import('node:vm');
+  const src = readFileSync(join(ROOT, 'extension', 'background.js'), 'utf8');
+  const noop = () => {};
+  const states = [];
+  const rejections = [];
+  const onRejection = (e) => rejections.push(String(e?.message || e));
+  process.on('unhandledRejection', onRejection);
+  const ctx = {
+    console: { log: noop, warn: noop, error: noop },
+    setTimeout, clearTimeout, setInterval: () => 0, clearInterval: noop,
+    AbortSignal,
+    crypto: { randomUUID: () => 'uuid-for-test' },
+    fetch: async () => ({ ok: true, status: 200, json: async () => ({ token: 'x'.repeat(43), base: 'http://127.0.0.1:3081' }) }),
+    chrome: {
+      runtime: {
+        id: 'test-ext', getURL: (p) => 'file:///ext/' + p, getManifest: () => ({ version: 'test' }),
+        onMessage: { addListener: noop }, onStartup: { addListener: noop }, onInstalled: { addListener: noop },
+      },
+      storage: {
+        local: {
+          get: async () => ({ clientId: 'cid-for-test' }),
+          set: async (o) => { if (o && o.state) states.push(String(o.state)); },
+          remove: async () => {},
+        },
+      },
+      action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
+      tabs: {
+        query: async () => [], sendMessage: async () => null, create: async () => ({ id: 1 }),
+        update: async () => {}, get: async () => ({ status: 'complete' }),
+        onUpdated: { addListener: noop, removeListener: noop }, reload: async () => {},
+      },
+      alarms: { create: noop, onAlarm: { addListener: noop } },
+    },
+  };
+  createContext(ctx);
+  let loadError = null;
+  try { runInContext(src, ctx); } catch (e) { loadError = e; }
+  check('background.js 能在假 chrome 环境里加载（没有同步抛错）', !loadError, loadError ? loadError.message : '');
+  await new Promise((r) => setTimeout(r, 150));
+  process.off('unhandledRejection', onRejection);
+  check('加载后没有未处理的 Promise 拒绝（例如 DEFAULTS is not defined）', rejections.length === 0, rejections.slice(0, 2).join(' | '));
+  const badStates = states.filter((s) => /is not defined|ReferenceError|local-config/.test(s));
+  check('没有把"配置解析失败"写进状态（写了就意味着扩展连不上 broker）', badStates.length === 0, badStates.slice(0, 2).join(' | '));
+  check('background.js 里用到的 DEFAULTS 必须有声明', /const DEFAULTS\s*=/.test(src));
+}
+
 console.log('\n=== 6) 扩展清单自检 ===');
 {
   const manifest = JSON.parse(readFileSync(join(ROOT, 'extension', 'manifest.json'), 'utf8'));
