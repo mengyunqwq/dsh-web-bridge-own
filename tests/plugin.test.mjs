@@ -1,6 +1,7 @@
 // 插件专属逻辑测试：DSH 流式分片、工具 schema 提取、配对密钥、broker 的进程内接口（含面板取消）
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createBroker } from '../lib/broker.js';
 import { replyChunks, schemasOf, parseReply } from '../lib/protocol.js';
@@ -125,5 +126,20 @@ const extTake = async () => {
 }
 
 await broker.close();
+
+// 静态守卫：/v1 的"保活"必须存在（2026-09-29）
+// 背景：网页模型一轮要"想+写"，可能几十秒；而**非流式**请求在此之前一个字节都不发 ✗ ——
+// 调用方若设了"空闲读取超时"就会先断开，我们拿到答复也送不出去（用户侧="网页端有结果、
+// 我这边收不到 / 显示已完成但没内容"）。修法：非流式定期写换行（JSON 合法空白 ✓），
+// 流式写 SSE 注释行（`: keepalive` ✓）。这里只做源码级守卫，防止以后被误删。
+{
+  const ROOT = fileURLToPath(new URL('..', import.meta.url));
+  const src = readFileSync(join(ROOT, 'lib', 'broker.js'), 'utf8');
+  check('非流式保活：定期写换行（JSON 合法空白，不会破坏响应体）',
+    /const keepAlive = setInterval\(/.test(src) && /res\.write\(stream \? ': keepalive\\n\\n' : '\\n'\)/.test(src));
+  check('保活定时器必须被清理（否则泄漏 + 挂住进程）', /finally \{\s*\n?\s*clearInterval\(keepAlive\);/.test(src) || /clearInterval\(keepAlive\)/.test(src));
+  check('保活间隔是 10 秒（够短能防超时，够长不刷屏）', /10_000\)/.test(src));
+}
+
 console.log('\n' + (fail === 0 ? `全部通过 ✓  (${pass} 项)` : `失败 ${fail} 项 ✗ (通过 ${pass})`));
 process.exit(fail === 0 ? 0 : 1);
